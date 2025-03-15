@@ -758,8 +758,6 @@ def configapp(device_id: str, iname: str, delete_on_cancel: int) -> ResponseRetu
         url_params = urlencode(config_dict)
 
         current_app.logger.debug(url_params)
-        if len(url_params) > 2:
-            flash(url_params)
 
         # execute the pixlet serve process and show in it an iframe on the config page.
         current_app.logger.debug(str(app_path))
@@ -862,6 +860,7 @@ def configapp(device_id: str, iname: str, delete_on_cancel: int) -> ResponseRetu
             device_id=device_id,
             delete_on_cancel=delete_on_cancel,
             user_render_port=user_render_port,
+            config=json.dumps(config_dict, indent=4),
         )
     abort(HTTPStatus.BAD_REQUEST)
 
