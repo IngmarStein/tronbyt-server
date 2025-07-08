@@ -55,4 +55,4 @@ RUN mkdir -p /app/data /app/users && \
 #USER tronbyt
 
 # start the app
-ENTRYPOINT ["./run"]
+CMD ["./run"]
