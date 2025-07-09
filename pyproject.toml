@@ -12,8 +12,8 @@ dependencies = [
     "flask-babel",
     "flask-sock",
     "granian",
-    "asgiref",
     "python-dotenv",
+    "a2wsgi",
     "requests",
     "tzlocal",
 ]

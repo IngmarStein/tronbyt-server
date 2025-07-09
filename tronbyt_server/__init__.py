@@ -13,7 +13,6 @@ from flask import Flask, current_app, g, request
 from flask_babel import Babel, _
 from flask_sock import Sock
 from werkzeug.serving import is_running_from_reloader
-from asgiref.wsgi import WsgiToAsgi
 
 from tronbyt_server import db, system_apps
 
@@ -203,7 +202,7 @@ def get_locale() -> Optional[str]:
     return request.accept_languages.best_match(current_app.config["LANGUAGES"])
 
 
-def _create_wsgi_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
+def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
     if dotenv_path := find_dotenv(usecwd=True):
         print(f"Loading environment variables from {dotenv_path}")
         load_dotenv(dotenv_path)
@@ -297,4 +296,6 @@ def _create_wsgi_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
 
     return app
 
-application = WsgiToAsgi(_create_wsgi_app())
+# Create an ASGI-compatible application for Granian
+from a2wsgi import ASGIMiddleware
+application = ASGIMiddleware(create_app())

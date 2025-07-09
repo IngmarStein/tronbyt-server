@@ -3,8 +3,34 @@ set -euo pipefail
 
 if [ "${PRODUCTION:-1}" = "1" ]; then
     # PRODUCTION
-    exec granian --interface asgi --host 0.0.0.0 --port 8000 "tronbyt_server:application"
+    # Default port is 8000, consistent with old gunicorn config and dev mode
+    # SERVER_PORT, LOG_LEVEL, GRANIAN_WORKERS, GRANIAN_THREADS can be set in .env or docker-compose
+
+    SSL_OPTIONS=""
+    if [ -n "${SSL_KEYFILE}" ] && [ -n "${SSL_CERTIFICATE}" ]; then
+        SSL_OPTIONS="--ssl-keyfile ${SSL_KEYFILE} --ssl-certificate ${SSL_CERTIFICATE}"
+        # Optionally, add other SSL parameters if corresponding env vars are set
+        if [ -n "${SSL_CA_CERTIFICATE}" ]; then
+            SSL_OPTIONS="${SSL_OPTIONS} --ssl-ca-certs ${SSL_CA_CERTIFICATE}"
+        fi
+        if [ -n "${SSL_CIPHERS}" ]; then
+            SSL_OPTIONS="${SSL_OPTIONS} --ssl-ciphers ${SSL_CIPHERS}"
+        fi
+        # Add more SSL options as needed, e.g., for client certs, versions
+    fi
+
+    exec granian \
+        --host 0.0.0.0 \
+        --port "${SERVER_PORT:-8000}" \
+        --interface asgi \
+        --workers "${GRANIAN_WORKERS:-1}" \
+        --blocking-threads "${GRANIAN_THREADS:-4}" \
+        --log-level "${LOG_LEVEL:-info}" \
+        --access-log \
+        ${SSL_OPTIONS} \
+        "tronbyt_server:application"
 else
     # DEVELOPMENT
+    # FLASK_DEBUG=1 already enables reloading
     FLASK_APP=tronbyt_server FLASK_DEBUG=1 exec flask run --host=0.0.0.0 --port=8000
 fi

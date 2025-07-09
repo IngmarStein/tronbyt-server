@@ -90,7 +90,7 @@ That said, the recommended installation method uses Docker Compose with a config
    curl https://raw.githubusercontent.com/tronbyt/server/refs/heads/main/.env.example > $(brew --prefix)/var/tronbyt-server/.env
    ```
 
-   You can further customize the server by editing the [Gunicorn settings](https://docs.gunicorn.org/en/latest/settings.html#settings) (listening address, TLS certificate, etc.) in `$(brew --prefix)/etc/tronbyt-server/gunicorn.conf.py`.
+   You can further customize the server by setting environment variables (e.g., `SERVER_PORT`, `LOG_LEVEL`, `GRANIAN_WORKERS`, `GRANIAN_THREADS`) that are read by the `run` script (typically located in the Homebrew installation's `libexec` directory, e.g., `$(brew --prefix)/opt/tronbyt-server/libexec/run`). For TLS, you would need to modify the `run` script to include Granian's SSL options like `--ssl-keyfile` and `--ssl-certificate` or use a reverse proxy.
 
 ### Running the Application
 
@@ -180,56 +180,48 @@ If you are upgrading from an earlier version of Tronbyt Server (earlier than ver
 
 ### HTTPS (TLS)
 
-If you'd like to serve Tronbyt Server over HTTPS, you can do so by configuring Gunicorn or by fronting the service with a reverse proxy. The reverse proxy approach is more flexible and allows for automatic certificate provisioning and renewal. If you already have a certificate, you can also use that directly and avoid the sidecar container.
+If you'd like to serve Tronbyt Server over HTTPS, you can do so by configuring the Granian server directly or by fronting the service with a reverse proxy. The reverse proxy approach is generally more flexible and allows for features like automatic certificate provisioning and renewal.
 
 #### Reverse Proxy
 
 The `docker-compose.https.yaml` file contains an example using [Caddy](https://caddyserver.com) as a lightweight reverse proxy which provides TLS termination. The default configuration uses [Local HTTPS](https://caddyserver.com/docs/automatic-https#local-https), for which Caddy generates its own certificate authority (CA) and uses it to sign certificates. The certificates are stored in the `certs` directory at `pki/authorities/local`.
 
-If you want to make Tronbyt Server accessible using a public DNS name, adjust `Caddyfile` to match your domain name and use one of the supporte [ACME challenges](https://caddyserver.com/docs/automatic-https#acme-challenges) (HTTP, TLS-ALPN, or DNS).
+If you want to make Tronbyt Server accessible using a public DNS name, adjust `Caddyfile` to match your domain name and use one of the supported [ACME challenges](https://caddyserver.com/docs/automatic-https#acme-challenges) (HTTP, TLS-ALPN, or DNS).
 
-#### Gunicorn
+#### Direct Granian Configuration
 
-The following example assumes that your private key and certificate are located next to your Compose file.
+To configure Granian to serve HTTPS directly, you need to provide it with your SSL certificate and private key. This is achieved by setting environment variables that the `run` script uses to pass the appropriate command-line arguments to Granian.
 
-1. Create a file named `gunicorn.conf.py` in the same directory which looks like this:
+1.  **Set Environment Variables:**
+    Make your SSL key and certificate files accessible to the application and set the following environment variables:
+    *   `SSL_KEYFILE`: Path to your SSL private key file (e.g., `/ssl/privkey.pem`).
+    *   `SSL_CERTIFICATE`: Path to your SSL certificate file (e.g., `/ssl/fullchain.pem`).
+    *   Optionally, you can also set `SSL_CA_CERTIFICATE` for CA bundles or `SSL_CIPHERS` to specify cipher suites, among other options supported by Granian.
 
-```python
-bind = "0.0.0.0:8000"
-loglevel = "info"
-accesslog = "-"
-access_log_format = "%(h)s %(l)s %(u)s %(t)s %(r)s %(s)s %(b)s %(f)s %(a)s"
-errorlog = "-"
-workers = 4
-threads = 4
-timeout = 120
-worker_tmp_dir = "/dev/shm"
-preload_app = True
-reload = False
-keyfile = "/ssl/privkey.pem"
-certfile = "/ssl/fullchain.pem"
+    How you set these variables depends on your deployment:
+    *   **Docker/Docker Compose:** Add them to the `environment` section of your `web` service in your `docker-compose.yaml` file or pass them with `docker run -e ...`.
+    *   **Homebrew Service:** You might need to configure the launchd plist to pass these environment variables to the service. Refer to Homebrew documentation for managing service environment variables.
+    *   **Direct `run` script execution:** Set them in your shell before running the script (e.g., `export SSL_KEYFILE=/path/to/key.pem`).
 
-def ssl_context(conf, default_ssl_context_factory):
-    import ssl
-    context = default_ssl_context_factory()
-    context.minimum_version = ssl.TLSVersion.TLSv1_2
-    return context
-```
+2.  **If using Docker (Volume Mounts for Certificates):**
+    Ensure your certificate files are available inside the container by mounting them as volumes. For example, in `docker-compose.yaml`:
+    ```yaml
+    services:
+      web:
+        # ... other service config ...
+        environment:
+          - SSL_KEYFILE=/ssl/privkey.pem
+          - SSL_CERTIFICATE=/ssl/fullchain.pem
+        volumes:
+          # ... other volumes ...
+          - /path/on/host/to/privkey.pem:/ssl/privkey.pem:ro
+          - /path/on/host/to/fullchain.pem:/ssl/fullchain.pem:ro
+    ```
+    The paths specified in `SSL_KEYFILE` and `SSL_CERTIFICATE` must match the target paths of your volume mounts.
 
-2. Make the files in PEM format and the configuration file available to the container:
+3.  **Restart the application.**
 
-```
-    volumes:
-      - ./gunicorn.conf.py:/app/gunicorn.conf.py
-      - ./fullchain.cer:/ssl/fullchain.pem
-      - ./privkey.pem:/ssl/privkey.pem
-```
-
-3. Restart the container.
-
-Your Tronbyt server is now serving HTTPS.
-
-See https://docs.gunicorn.org/en/latest/settings.html#settings for an exhaustive list of settings for Gunicorn.
+Your Tronbyt server should now be serving HTTPS using the specified certificates. The `run` script will automatically include the `--ssl-keyfile` and `--ssl-certificate` arguments (and others like `--ssl-ca-certs` or `--ssl-ciphers` if their respective environment variables are set) when invoking Granian.
 
 ### Cache
 
