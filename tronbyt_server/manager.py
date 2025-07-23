@@ -1523,6 +1523,8 @@ def websocket_endpoint(ws: WebSocketServer, device_id: str) -> None:
 def push_new_image(device_id: str) -> None:
     """Wake up one WebSocket loop to push a new image."""
     with device_locks:
-        if device_id in device_conditions:
-            with device_conditions[device_id]:
-                device_conditions[device_id].notify(1)
+        condition = device_conditions.get(device_id)
+
+    if condition:
+        with condition:
+            condition.notify(1)
