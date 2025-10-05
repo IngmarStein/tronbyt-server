@@ -44,9 +44,11 @@ class Device(BaseModel):
     brightness: int = 100  # Percentage-based brightness (0-100)
     night_mode_enabled: bool = False
     night_mode_app: str = ""
-    night_start: int = 0
-    night_end: int = 0
+    night_start: int | str = 0  # Time in HH:MM format or legacy int (hour only)
+    night_end: int | str = 0  # Time in HH:MM format or legacy int (hour only)
     night_brightness: int = 0  # Percentage-based night brightness (0-100)
+    dim_time: str | None = None  # Time in HH:MM format when dimming should start
+    dim_brightness: int = 0  # Percentage-based dim brightness (0-100)
     default_interval: int = 15
     timezone: str = ""
     location: Location | None = None

@@ -55,6 +55,67 @@ router = APIRouter(tags=["manager"])
 logger = logging.getLogger(__name__)
 
 
+def parse_time_input(time_str: str) -> str:
+    """
+    Parse time input in various formats and return as HH:MM string.
+
+    Accepts:
+    - HH:MM format (e.g., "22:00", "6:30")
+    - HHMM format (e.g., "2200", "0630")
+    - H:MM format (e.g., "6:30")
+    - HMM format (e.g., "630")
+
+    Returns:
+    - Time string in HH:MM format
+
+    Raises:
+    - ValueError if the input is invalid
+    """
+    time_str = time_str.strip()
+
+    if not time_str:
+        raise ValueError("Time cannot be empty")
+
+    try:
+        # Try to parse as HH:MM or H:MM format
+        if ":" in time_str:
+            parts = time_str.split(":")
+            if len(parts) != 2:
+                raise ValueError(f"Invalid time format: {time_str}")
+            hour_str, minute_str = parts
+            hour = int(hour_str)
+            minute = int(minute_str)
+        else:
+            # Parse as HHMM or HMM format
+            if len(time_str) == 4:
+                hour = int(time_str[:2])
+                minute = int(time_str[2:])
+            elif len(time_str) == 3:
+                hour = int(time_str[0])
+                minute = int(time_str[1:])
+            elif len(time_str) == 2:
+                hour = int(time_str)
+                minute = 0
+            elif len(time_str) == 1:
+                hour = int(time_str)
+                minute = 0
+            else:
+                raise ValueError(f"Invalid time format: {time_str}")
+    except ValueError as e:
+        # Re-raise with more context if it's a conversion error
+        if "invalid literal" in str(e):
+            raise ValueError(f"Time must contain only numbers: {time_str}")
+        raise
+
+    # Validate hour and minute
+    if hour < 0 or hour > 23:
+        raise ValueError(f"Hour must be between 0 and 23: {hour}")
+    if minute < 0 or minute > 59:
+        raise ValueError(f"Minute must be between 0 and 59: {minute}")
+
+    return f"{hour:02d}:{minute:02d}"
+
+
 def _next_app_logic(
     db_conn: sqlite3.Connection,
     device_id: str,
@@ -362,9 +423,11 @@ def update_post(
     night_brightness: int = Form(...),
     default_interval: int = Form(...),
     night_mode_enabled: bool = Form(False),
-    night_start: int = Form(...),
-    night_end: int = Form(...),
+    night_start: str | None = Form(None),
+    night_end: str | None = Form(None),
     night_mode_app: str | None = Form(None),
+    dim_time: str | None = Form(None),
+    dim_brightness: int = Form(...),
     timezone: str = Form(...),
     location: str | None = Form(None),
 ) -> Response:
@@ -396,10 +459,36 @@ def update_post(
     device.night_brightness = db.ui_scale_to_percent(night_brightness)
     device.default_interval = default_interval
     device.night_mode_enabled = night_mode_enabled
-    device.night_start = night_start
-    device.night_end = night_end
     device.night_mode_app = night_mode_app or ""
     device.timezone = timezone
+
+    if night_start:
+        device.night_start = int(night_start)
+        try:
+            device.night_start = parse_time_input(night_start)
+        except ValueError as e:
+            flash(request, f"Invalid Night Start Time: {e}")
+
+    if night_end:
+        device.night_end = int(night_end)
+        try:
+            device.night_end = parse_time_input(night_end)
+        except ValueError as e:
+            flash(request, f"Invalid Night End Time: {e}")
+
+    # Handle dim time and dim brightness
+    # Note: Dim mode ends at night_end time (if set) or 6:00 AM by default
+    if dim_time and dim_time.strip():
+        try:
+            device.dim_time = parse_time_input(dim_time)
+        except ValueError as e:
+            flash(request, f"Invalid Dim Time: {e}")
+    elif device.dim_time:
+        # Remove dim_time if the field is empty
+        device.dim_time = None
+
+    if dim_brightness:
+        device.dim_brightness = db.ui_scale_to_percent(dim_brightness)
 
     if location and location != "{}":
         try:
