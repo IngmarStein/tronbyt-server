@@ -1,20 +1,21 @@
 """Utility functions."""
 
 import logging
-import os
-import subprocess
-import time
-import sqlite3
 import shutil
+import sqlite3
+import time
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
 from fastapi import Request, Response
 from fastapi.responses import FileResponse
 from fastapi_babel import _
+from git import GitCommandError, Repo
 
 from tronbyt_server import db
 from tronbyt_server.flash import flash
+from tronbyt_server.git_utils import get_repo
 from tronbyt_server.models import App, Device, User
 from tronbyt_server.pixlet import render_app as pixlet_render_app
 from tronbyt_server.sync import get_sync_manager
@@ -23,13 +24,11 @@ from tronbyt_server.sync import get_sync_manager
 logger = logging.getLogger(__name__)
 
 
-def git_command(
-    command: list[str], cwd: Path | None = None, check: bool = False
-) -> subprocess.CompletedProcess[bytes]:
-    """Run a git command in the specified path."""
-    env = os.environ.copy()
-    env.setdefault("HOME", os.getcwd())
-    return subprocess.run(command, cwd=cwd, env=env, check=check)
+class RepoStatus(Enum):
+    CLONED = "cloned"
+    UPDATED = "updated"
+    FAILED = "failed"
+    NO_CHANGE = "no_change"
 
 
 def add_default_config(config: dict[str, Any], device: Device) -> dict[str, Any]:
@@ -106,35 +105,45 @@ def set_repo(
     repo_url: str,
 ) -> bool:
     """Clone or update a git repository."""
-    if repo_url != "":
+    status = RepoStatus.NO_CHANGE
+    if repo_url:
         if old_repo_url != repo_url:
             if apps_path.exists():
                 shutil.rmtree(apps_path)
-            result = git_command(
-                [
-                    "git",
-                    "clone",
-                    "--depth",
-                    "1",
-                    repo_url,
-                    str(apps_path),
-                ]
-            )
-            if result.returncode == 0:
-                flash(request, _("Repo Cloned"))
-                return True
-            else:
-                flash(request, _("Error Cloning Repo"))
-                return False
+            try:
+                Repo.clone_from(repo_url, apps_path, depth=1)
+                status = RepoStatus.CLONED
+            except GitCommandError:
+                status = RepoStatus.FAILED
         else:
-            result = git_command(["git", "-C", str(apps_path), "pull"])
-            if result.returncode == 0:
-                flash(request, _("Repo Updated"))
-                return True
+            repo = get_repo(apps_path)
+            if repo:
+                try:
+                    repo.remotes.origin.pull()
+                    status = RepoStatus.UPDATED
+                except (GitCommandError, IndexError):
+                    status = RepoStatus.FAILED
+            elif not apps_path.exists():
+                # Path does not exist, so clone it
+                try:
+                    Repo.clone_from(repo_url, apps_path, depth=1)
+                    status = RepoStatus.CLONED
+                except GitCommandError:
+                    status = RepoStatus.FAILED
             else:
-                flash(request, _("Repo Update Failed"))
-                return False
-    else:
+                # Path exists but is not a valid git repo
+                status = RepoStatus.FAILED
+
+    if status == RepoStatus.CLONED:
+        flash(request, _("Repo Cloned"))
+        return True
+    elif status == RepoStatus.UPDATED:
+        flash(request, _("Repo Updated"))
+        return True
+    elif status == RepoStatus.FAILED:
+        flash(request, _("Error Cloning or Updating Repo"))
+        return False
+    else:  # NO_CHANGE
         flash(request, _("No Changes to Repo"))
         return True
 
